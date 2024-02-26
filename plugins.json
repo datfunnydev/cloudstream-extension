@@ -1,0 +1,67 @@
+[
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=phimmoichillk.net&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/datfunnydev/cloudstream-extension",
+        "fileSize": 15172,
+        "status": 1,
+        "language": "vi",
+        "authors": [
+            "Hexated"
+        ],
+        "tvTypes": [
+            "AsianDrama",
+            "Anime",
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 7,
+        "internalName": "PhimmoichillProvider",
+        "url": "https://raw.githubusercontent.com/datfunnydev/cloudstream-extension/builds/PhimmoichillProvider.cs3",
+        "name": "PhimmoichillProvider"
+    },
+    {
+        "iconUrl": "https://cdn.discordapp.com/attachments/1109266606292488297/1193122096159674448/2-modified.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/datfunnydev/cloudstream-extension",
+        "fileSize": 275678,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "Hexated",
+            "Sora"
+        ],
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries",
+            "Anime",
+            "Movie"
+        ],
+        "version": 225,
+        "internalName": "SoraStream",
+        "description": "#1 best extention based on MultiAPI",
+        "url": "https://raw.githubusercontent.com/datfunnydev/cloudstream-extension/builds/SoraStream.cs3",
+        "name": "SoraStream"
+    },
+    {
+        "iconUrl": "https://cdn.discordapp.com/attachments/1109266606292488297/1196694385061003334/icon.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/datfunnydev/cloudstream-extension",
+        "fileSize": 73923,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "Blatzar"
+        ],
+        "tvTypes": [
+            "AsianDrama",
+            "Anime",
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 3,
+        "internalName": "Superstream",
+        "url": "https://raw.githubusercontent.com/datfunnydev/cloudstream-extension/builds/Superstream.cs3",
+        "name": "Superstream"
+    }
+]
