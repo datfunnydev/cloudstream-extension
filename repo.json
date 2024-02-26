@@ -3,6 +3,6 @@
   "description": "CloudSteamExtension",
   "manifestVersion": 1,
   "pluginLists": [
-    "https://raw.githubusercontent.com/datfunnydev/cloudsteam-extension-builds/main/plugins.json"
+    "https://raw.githubusercontent.com/datfunnydev/cloudstream-extension-builds/main/plugins.json"
   ]
 }
