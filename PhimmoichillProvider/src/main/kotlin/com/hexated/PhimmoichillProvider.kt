@@ -15,7 +15,7 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 class PhimmoiProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://phimmoichillk.net"
+    override var mainUrl = "https://phimmoichille.net/"
     override var name = "Phimmoi"
     override val supportedTypes = setOf(TvType.Movie)
     private val defaultPageUrl: String
