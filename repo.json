@@ -1,0 +1,8 @@
+{
+  "name": "CloudSteamExtension",
+  "description": "CloudSteamExtension",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/datfunnydev/cloudstream-extension/builds/plugins.json"
+  ]
+}
