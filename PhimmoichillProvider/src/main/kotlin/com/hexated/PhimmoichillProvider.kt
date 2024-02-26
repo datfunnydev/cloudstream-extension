@@ -1,230 +1,161 @@
-package com.phimmoi
+package com.hexated
 
-import android.util.Log
-import android.util.Patterns
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.mvvm.safeApiCall
-import com.lagradost.cloudstream3.ui.search.SearchFragment
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.getQualityFromName
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
+import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
+import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
+import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
-import java.util.regex.Matcher
-import java.util.regex.Pattern
+import java.net.URI
+import java.net.URLDecoder
 
-class PhimmoiProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://phimmoichille.net/"
-    override var name = "Phimmoi"
-    override val supportedTypes = setOf(TvType.Movie)
-    private val defaultPageUrl: String
-        get() = "${mainUrl}/genre/phim-chieu-rap/"
-    companion object {
-        const val HOST_STREAM = "dash.megacdn.xyz";
-    }
-    override var lang = "vi"
-
-    // enable this when your provider has a main page
+class PhimmoichillProvider : MainAPI() {
+    override var mainUrl = "https://phimmoichille.net"
+    private var directUrl = mainUrl
+    override var name = "Phimmoichill"
     override val hasMainPage = true
+    override var lang = "vi"
+    override val hasDownloadSupport = true
+    override val supportedTypes = setOf(
+        TvType.Movie,
+        TvType.TvSeries,
+        TvType.Anime,
+        TvType.AsianDrama
+    )
 
-    // this function gets called when you search for something
-    override suspend fun search(query: String): List<SearchResponse>? {
-        return quickSearch(query)
-    }
+    override val mainPage = mainPageOf(
+        "$mainUrl/genre/phim-chieu-rap/page-" to "Phim Chiếu Rạp",
+        "$mainUrl/list/phim-le/page-" to "Phim Lẻ",
+        "$mainUrl/list/phim-bo/page-" to "Phim Bộ",
+        "$mainUrl/genre/phim-hoat-hinh/page-" to "Phim Hoạt Hình",
+        "$mainUrl/genre/phim-anime/page-" to "Phim Anime",
+        "$mainUrl/country/phim-han-quoc/page-" to "Phim Hàn Quốc",
+        "$mainUrl/country/phim-trung-quoc/page-" to "Phim Trung Quốc",
+        "$mainUrl/country/phim-thai-lan/page-" to "Phim Thái Lan",
+        "$mainUrl/genre/phim-sap-chieu/page-" to "Phim Sắp Chiếu",
+    )
 
-    override suspend fun quickSearch(query: String): List<SearchResponse>? {
-        val url =  "${mainUrl}tim-kiem/${query}/"
-        val html = app.get(url).text
-        val document = Jsoup.parse(html)
-
-        return document.select("#binlist .item").map {
-            getItemMovie(it)
+    override suspend fun getMainPage(
+        page: Int,
+        request: MainPageRequest
+    ): HomePageResponse {
+        val document = app.get(request.data + page).document
+        val home = document.select("li.item").mapNotNull {
+            it.toSearchResult()
         }
-    }
-
-
-    override suspend fun getMenus(): List<Pair<String, List<Page>>>? {
-        val html = app.get(mainUrl).text
-        val doc = Jsoup.parse(html)
-        val listGenre = arrayListOf<Page>()
-        doc.select("#main-menu .sub-menu").first()!!.select("li").forEach {
-            val url = it.selectFirst("a")!!.attr("href")
-            val name = it.selectFirst("a")!!.text().trim()
-            listGenre.add(Page(name, url, nameApi = this.name))
-        }
-        val listCountry = arrayListOf<Page>()
-        doc.select("#main-menu .sub-menu")[1].select("li").forEach {
-            val url = it.selectFirst("a")!!.attr("href")
-            val name = it.selectFirst("a")!!.text().trim()
-            listCountry.add(Page(name, url, nameApi = this.name))
-        }
-        return arrayListOf<Pair<String, List<Page>>>(
-            Pair("Thể loại", listGenre),
-            Pair("Quốc gia", listCountry)
+        return newHomePageResponse(
+            list = HomePageList(
+                name = request.name,
+                list = home,
+                isHorizontalImages = true
+            ),
+            hasNext = true
         )
     }
-    private fun getItemMovie(it: Element): MovieSearchResponse {
-        val title = it.select("h3").last()!!.text()
-        val href = fixUrl(it.selectFirst("a")!!.attr("href"))
-        val year = 0
-        val image = it.selectFirst("img")!!.attr("src")
-        //            val isMovie = href.contains("/movie/")
-        return MovieSearchResponse(
-            title,
-            href,
-            this.name,
-            TvType.Movie,
-            image,
-            year,
-            posterHeaders = mapOf("referer" to mainUrl)
-        )
-    }
-    override suspend fun loadPage(url: String): PageResponse? {
-        val html = app.get(url).text
-        val document = Jsoup.parse(html)
 
-        val list =  document.select("#binlist .item").map {
-            getItemMovie(it)
-        }
-        return PageResponse(list,getPagingResult(document))
-    }
-    private fun getPagingResult( document: Document): String? {
-        val tagPageResult: Element? = document.selectFirst(".pagination li")
-        if (tagPageResult == null) { // only one page
+    private fun decode(input: String): String? = URLDecoder.decode(input, "utf-8")
 
-            //LogUtils.d("no more page")
+    private fun Element.toSearchResult(): SearchResponse {
+        val title = this.selectFirst("p,h3")?.text()?.trim().toString()
+        val href = fixUrl(this.selectFirst("a")!!.attr("href"))
+        val posterUrl = decode(this.selectFirst("img")!!.attr("src").substringAfter("url="))
+        val temp = this.select("span.label").text()
+        return if (temp.contains(Regex("\\d"))) {
+            val episode = Regex("(\\((\\d+))|(\\s(\\d+))").find(temp)?.groupValues?.map { num ->
+                num.replace(Regex("\\(|\\s"), "")
+            }?.distinct()?.firstOrNull()?.toIntOrNull()
+            newAnimeSearchResponse(title, href, TvType.TvSeries) {
+                this.posterUrl = posterUrl
+                addSub(episode)
+            }
+        } else if (temp.contains(Regex("Trailer"))) {
+            newMovieSearchResponse(title, href, TvType.Movie) {
+                this.posterUrl = posterUrl
+            }
         } else {
-            val listLiPage = document.select(".pagination li")
-            if (!listLiPage.isEmpty()) {
-                for (i in listLiPage.indices) {
-                    val li = listLiPage[i].select("a")
-                    if ((li).attr("class").contains("current")) {
-
-                        if (i == listLiPage.size - 1) {
-                            //last page
-                            //LogUtils.d("no more page")
-                        } else {
-                            if ( listLiPage[i + 1] != null) {
-                                val nextLi = listLiPage[i + 1]
-                                val a = nextLi.getElementsByTag("a")
-                                if (!a.isEmpty()) {
-                                    var nextUrl = fixUrl(a.first()!!.attr("href"))
-
-                                    //LogUtils.d("has more page")
-                                    return nextUrl
-                                } else {
-                                    //LogUtils.d("no more page")
-
-                                }
-                            } else {
-                                //LogUtils.d("no more page")
-                            }
-                        }
-                        break
-                    }
-                }
-            } else {
-                //LogUtils.d("no more page")
+            val quality =
+                temp.replace(Regex("(-.*)|(\\|.*)|(?i)(VietSub.*)|(?i)(Thuyết.*)"), "").trim()
+            newMovieSearchResponse(title, href, TvType.Movie) {
+                this.posterUrl = posterUrl
+                addQuality(quality)
             }
         }
-        return null
     }
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
-        val html = app.get(mainUrl).text
-        val doc = Jsoup.parse(html)
-        val listHomePageList = arrayListOf<HomePageList>()
-        doc.select(".block").forEach {
-            val name = it.select(".caption").text().trim()
-            val urlMore = fixUrl(it.select(".see-more").attr("href"))
-            val listMovie = it.select(".list-film .item").map {
-                val title = it.select("p").last()!!.text()
-                val href = fixUrl(it.selectFirst("a")!!.attr("href"))
-                val year = 0
-                val image = it.selectFirst("img")!!.attr("src")
-                LiveTvSearchResponse(
-                    title,
-                    href,
-                    this.name,
-                    TvType.Movie,
-                    image,
-                    year,
-                    posterHeaders = mapOf("referer" to mainUrl)
+
+    override suspend fun search(query: String): List<SearchResponse> {
+        val link = "$mainUrl/tim-kiem/$query"
+        val document = app.get(link).document
+
+        return document.select("ul.list-film li").map {
+            it.toSearchResult()
+        }
+    }
+
+    override suspend fun load(url: String): LoadResponse {
+        val request = app.get(url)
+        directUrl = getBaseUrl(request.url)
+        val document = request.document
+
+        val title = document.selectFirst("h1[itemprop=name]")?.text()?.trim().toString()
+        val link = document.select("ul.list-button li:last-child a").attr("href")
+        val poster = document.selectFirst("div.image img[itemprop=image]")?.attr("src")
+        val tags = document.select("ul.entry-meta.block-film li:nth-child(4) a")
+            .map { it.text().substringAfter("Phim") }
+        val year = document.select("ul.entry-meta.block-film li:nth-child(2) a").text().trim()
+            .toIntOrNull()
+        val tvType = if (document.select("div.latest-episode").isNotEmpty()
+        ) TvType.TvSeries else TvType.Movie
+        val description =
+            document.select("div#film-content").text().substringAfter("Full HD Vietsub Thuyết Minh")
+                .substringBefore("@phimmoi").trim()
+        val trailer = document.select("body script")
+            .find { it.data().contains("youtube.com") }?.data()?.substringAfterLast("file: \"")
+            ?.substringBefore("\",")
+        val rating =
+            document.select("ul.entry-meta.block-film li:nth-child(7) span").text().toRatingInt()
+        val actors = document.select("ul.entry-meta.block-film li:last-child a").map { it.text() }
+        val recommendations = document.select("ul#list-film-realted li.item").map {
+            it.toSearchResult().apply {
+                this.posterUrl =
+                    decode(it.selectFirst("img")!!.attr("data-src").substringAfter("url="))
+            }
+        }
+
+        return if (tvType == TvType.TvSeries) {
+            val docEpisodes = app.get(link).document
+            val episodes = docEpisodes.select("ul#list_episodes > li").map {
+                val href = it.select("a").attr("href")
+                val episode =
+                    it.select("a").text().replace(Regex("[^0-9]"), "").trim().toIntOrNull()
+                val name = "Episode $episode"
+                Episode(
+                    data = href,
+                    name = name,
+                    episode = episode,
                 )
             }
-            if (listMovie.isNotEmpty())
-                listHomePageList.add(HomePageList(name, listMovie,isHorizontalImages = true ))
+            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+                this.posterUrl = poster
+                this.year = year
+                this.plot = description
+                this.tags = tags
+                this.rating = rating
+                addActors(actors)
+                this.recommendations = recommendations
+                addTrailer(trailer)
+            }
+        } else {
+            newMovieLoadResponse(title, url, TvType.Movie, link) {
+                this.posterUrl = poster
+                this.year = year
+                this.plot = description
+                this.tags = tags
+                this.rating = rating
+                addActors(actors)
+                this.recommendations = recommendations
+                addTrailer(trailer)
+            }
         }
-
-        return HomePageResponse(listHomePageList)
     }
-
-//    override suspend fun loadLinks(
-//        data: String,
-//        isCasting: Boolean,
-//        subtitleCallback: (SubtitleFile) -> Unit,
-//        callback: (ExtractorLink) -> Unit
-//    ): Boolean {
-//        Log.d("DuongKK", "data LoadLinks ---> $data ")
-//        val listEp = getDataEpisode(data)
-//        val idEp = listEp.find { data.contains(it.description!!) }?.description ?: data.substring(data.indexOf("-pm")+3)
-//        Log.d("DuongKK", "data LoadLinks ---> $data  --> $idEp")
-//        try {
-//            val urlRequest =
-//                "${this.mainUrl}/chillsplayer.php" //'https://subnhanh.net/frontend/default/ajax-player'
-//            val response = app.post(urlRequest, mapOf(), data = mapOf("qcao" to idEp)).okhttpResponse
-//            if (!response.isSuccessful || response.body == null) {
-////                Log.e("DuongKK ${response.message}")
-//                return false
-//            }
-//            val doc: Document = Jsoup.parse(response.body?.string())
-//            val jsHtml = doc.html()
-//            if (doc.selectFirst("iframe") != null) {
-//                // link embed
-//                val linkIframe =
-//                    "http://ophimx.app/player.html?src=${doc.selectFirst("iframe")!!.attr("src")}"
-//                return false
-//            } else {
-//                // get url stream
-//                var keyStart = "iniPlayers(\""
-//                var keyEnd = "\""
-//                if (!jsHtml.contains(keyStart)) {
-//                    keyStart = "initPlayer(\""
-//                }
-//                var tempStart = jsHtml.substring(jsHtml.indexOf(keyStart) + keyStart.length)
-//                var tempEnd = tempStart.substring(0, tempStart.indexOf(keyEnd))
-//                val urlPlaylist = if (tempEnd.contains("https://")) {
-//                    tempEnd
-//                } else {
-//                    "https://${HOST_STREAM}/raw/${tempEnd}/index.m3u8"
-//                }
-//                callback.invoke(
-//                    ExtractorLink(
-//                        urlPlaylist,
-//                        this.name,
-//                        urlPlaylist,
-//                        mainUrl,
-//                        getQualityFromName("720"),
-//                        true
-//                    )
-//                )
-//
-//                //get url subtitle
-//                keyStart = "tracks:"
-//                if (jsHtml.contains(keyStart)) {
-//                    keyEnd = "]"
-//                }
-//                tempStart = jsHtml.substring(jsHtml.indexOf(keyStart) + keyStart.length)
-//                tempEnd = tempStart.substring(0, tempStart.indexOf(keyEnd))
-//                val urls = extractUrls(tempEnd)
-//                urls?.forEach {
-//                    subtitleCallback.invoke(SubtitleFile("vi", it))
-//                }
-//            }
-//        } catch (error: Exception) {
-//        }
-//        return true
-//    }
 
     override suspend fun loadLinks(
         data: String,
@@ -232,167 +163,47 @@ class PhimmoiProvider : MainAPI() { // all providers must be an instance of Main
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val dataDecrypted = decryptData(data)
-
-        val document = app.get(dataDecrypted).document
+        val document = app.get(data).document
 
         val key = document.select("div#content script")
             .find { it.data().contains("filmInfo.episodeID =") }?.data()?.let { script ->
-                val id = script.substringAfter("filmInfo.episodeID = parseInt('")
+                val id = script.substringAfter("parseInt('").substringBefore("'")
                 app.post(
-                    // Not mainUrl
-                    url = "${this.mainUrl}/chillsplayer.php",
-                    data = mapOf("qcao" to id, "sv" to "0"),
-                    referer = dataDecrypted,
+                    url = "$directUrl/chillsplayer.php",
+                    data = mapOf("qcao" to id),
+                    referer = data,
                     headers = mapOf(
                         "X-Requested-With" to "XMLHttpRequest",
                         "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
                     )
                 ).text.substringAfterLast("iniPlayers(\"")
-                    .substringBefore("\",")
+                    .substringBefore("\"")
             }
 
         listOf(
-            Pair("https://so-trym.topphimmoi.org/raw/$key/index.m3u8", "PMFAST"),
+            Pair("https://sotrim.topphimmoi.org/raw/$key/index.m3u8", "PMFAST"),
             Pair("https://dash.megacdn.xyz/raw/$key/index.m3u8", "PMHLS"),
             Pair("https://so-trym.phimchill.net/dash/$key/index.m3u8", "PMPRO"),
             Pair("https://dash.megacdn.xyz/dast/$key/index.m3u8", "PMBK")
-        ).apmap { (link, source) ->
-            safeApiCall {
-                callback.invoke(
-                    ExtractorLink(
-                        source,
-                        source,
-                        link,
-                        referer = "$mainUrl/",
-                        quality = Qualities.P1080.value,
-                        isM3u8 = true,
-                    )
+        ).map { (link, source) ->
+            callback.invoke(
+                ExtractorLink(
+                    source,
+                    source,
+                    link,
+                    referer = "$directUrl/",
+                    quality = Qualities.P1080.value,
+                    INFER_TYPE,
                 )
-            }
+            )
         }
         return true
     }
 
-
-    override suspend fun load(url: String): LoadResponse? {
-        val html = app.get(url).text
-        val doc: Document = Jsoup.parse(html)
-        val realName = doc.select(".text h1").first()!!.text()
-        val listDataHtml = doc.select(".entry-meta li")
-        var year = ""
-        var duration = ""
-        for (index in listDataHtml.indices) {
-            val data = (listDataHtml[index]).text().trim();
-            if (data.contains("Thể loại: ")) {
-                val genre = data.replace("Thể loại: ", "")
-//                    movie.category = genre
-            } else if (data.contains("Quốc gia:")) {
-//                    movie. = data.replace("Quốc gia:", "")
-            } else if (data.contains("Diễn viên: ")) {
-//                    movie.actor = data.replace("Diễn viên:", "").trim()
-            } else if (data.contains("Đạo diễn:")) {
-//                    director = data.replace("Đạo diễn:", "").trim()
-            } else if (data.contains("Thời lượng:")) {
-                duration = data.replace("Thời lượng:", "")
-            } else if (data.contains("Năm Phát Hành: ")) {
-                year = data.replace("Năm Phát Hành: ", "")
-            }
-        }
-        val isMovie = doc.selectFirst(".latest-episode") == null
-        val description = doc.select("#film-content").text()
-        val urlBackdoor = extractUrl(doc.select(".film-info .image").attr("style"))
-//            movie.urlReview = movie.urlDetail
-        val other = doc.select(".list-button .btn-see").first()!!.attr("href")
-        val listRelate =  doc.selectFirst("#list-film-realted")!!.select(".item").map{
-            val title = it.select("p").last()!!.text()
-            val href = fixUrl(it.selectFirst("a")!!.attr("href"))
-            val year = 0
-            val image = it.selectFirst("img")!!.attr("data-src")
-            MovieSearchResponse(
-                title,
-                href,
-                this.name,
-                TvType.Movie,
-                image,
-                year,
-                posterHeaders = mapOf("referer" to mainUrl)
-            )
-        }
-        val episodes = getDataEpisode(other)
-        return if (episodes.isNullOrEmpty()) {
-            MovieLoadResponse(
-                name = realName,
-                url = url,
-                apiName = this.name,
-                type = TvType.Movie,
-                dataUrl = other,
-                posterUrl = urlBackdoor,
-                year = year.toInt(),
-                plot = description,
-                recommendations = listRelate,
-                posterHeaders = mapOf("referer" to mainUrl)
-            )
-        } else {
-            TvSeriesLoadResponse(
-                name = realName,
-                url = url,
-                apiName = this.name,
-                type = TvType.TvSeries,
-                posterUrl = urlBackdoor,
-                year = year.toIntOrNull(),
-                plot = description,
-                showStatus = null,
-                episodes = episodes,
-                recommendations = listRelate,
-                posterHeaders = mapOf("referer" to mainUrl)
-            )
+    private fun getBaseUrl(url: String): String {
+        return URI(url).let {
+            "${it.scheme}://${it.host}"
         }
     }
 
-    fun getDataEpisode(
-        url: String,
-    ): List<Episode> {
-        val doc: Document = Jsoup.connect(url).timeout(60 * 1000).get()
-        var idEpisode = ""
-        var idMovie = ""
-        var token = ""
-        val listEpHtml = doc.select("#list_episodes li")
-        val list = arrayListOf<Episode>();
-        listEpHtml.forEach {
-            val url = it.selectFirst("a")!!.attr("href")
-            val name = it.selectFirst("a")!!.text()
-            val id = it.selectFirst("a")!!.attr("data-id")
-            val episode = Episode(url,name, 0, null, null, null, id);
-            list.add(episode);
-        }
-        return list
-    }
-
-    private fun extractUrl(input: String) =
-        input
-            .split(" ")
-            .firstOrNull { Patterns.WEB_URL.matcher(it).find() }
-            ?.replace("url(", "")
-            ?.replace(")", "")
-
-    /**
-     * Returns a list with all links contained in the input
-     */
-    fun extractUrls(text: String): List<String>? {
-        val containedUrls: MutableList<String> = ArrayList()
-        val urlRegex =
-            "((https?|ftp|gopher|telnet|file):((//)|(\\\\))+[\\w\\d:#@%/;$()~_?\\+-=\\\\\\.&]*)"
-        val pattern: Pattern = Pattern.compile(urlRegex, Pattern.CASE_INSENSITIVE)
-        val urlMatcher: Matcher = pattern.matcher(text)
-        while (urlMatcher.find()) {
-            containedUrls.add(
-                text.substring(
-                    urlMatcher.start(0),
-                    urlMatcher.end(0)
-                )
-            )
-        }
-        return containedUrls
-    }
 }
